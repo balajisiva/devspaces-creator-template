@@ -1,0 +1,470 @@
+schemaVersion: 2.2.0
+metadata:
+  name: {{ values.name }}
+  version: 1.0.0
+  displayName: {{ values.displayName }}
+  description: {{ values.description }}
+  tags:
+    - {{ values.techStack }}
+    - {{ values.language }}
+    - devspaces
+  projectType: {{ values.techStack }}
+  language: {{ values.language }}
+  provider: {{ values.owner }}
+
+components:
+  # Main development container
+  - name: dev-container
+    container:
+      image: {{ values.containerImage }}
+      memoryLimit: {{ values.memoryLimit }}
+      memoryRequest: {% if values.memoryLimit == '1Gi' %}512Mi{% elif values.memoryLimit == '2Gi' %}1Gi{% elif values.memoryLimit == '4Gi' %}2Gi{% else %}4Gi{% endif %}
+      cpuLimit: {{ values.cpuLimit }}
+      cpuRequest: {% if values.cpuLimit == '500m' %}250m{% elif values.cpuLimit == '1000m' %}500m{% elif values.cpuLimit == '2000m' %}1000m{% else %}2000m{% endif %}
+      mountSources: true
+      sourceMapping: /projects
+      env:
+        {% if values.techStack == 'nodejs' or values.techStack == 'react' or values.techStack == 'angular' or values.techStack == 'vue' -%}
+        - name: NODE_ENV
+          value: development
+        - name: PORT
+          value: "{{ values.mainPort }}"
+        {% elif values.techStack == 'java-spring' -%}
+        - name: JAVA_HOME
+          value: /usr/lib/jvm/java-17
+        - name: MAVEN_OPTS
+          value: -Xmx1024m
+        - name: SERVER_PORT
+          value: "{{ values.mainPort }}"
+        {% elif values.techStack == 'python-django' -%}
+        - name: PYTHONPATH
+          value: /projects
+        - name: DJANGO_SETTINGS_MODULE
+          value: {{ values.name }}.settings
+        - name: PORT
+          value: "{{ values.mainPort }}"
+        {% elif values.techStack == 'go' -%}
+        - name: GOPATH
+          value: /projects
+        - name: PORT
+          value: "{{ values.mainPort }}"
+        {% elif values.techStack == 'dotnet' -%}
+        - name: ASPNETCORE_ENVIRONMENT
+          value: Development
+        - name: ASPNETCORE_URLS
+          value: http://+:{{ values.mainPort }}
+        {% endif -%}
+        {% if values.includeDatabase -%}
+        - name: DATABASE_URL
+          value: {% if values.databaseType == 'postgresql' %}postgresql://devuser:devpassword@postgres:5432/{{ values.databaseName }}{% elif values.databaseType == 'mysql' %}mysql://devuser:devpassword@mysql:3306/{{ values.databaseName }}{% elif values.databaseType == 'mongodb' %}mongodb://devuser:devpassword@mongodb:27017/{{ values.databaseName }}{% endif %}
+        {% endif -%}
+      endpoints:
+        - name: application
+          targetPort: {{ values.mainPort }}
+          exposure: public
+          protocol: https
+      volumeMounts:
+        {% if values.techStack == 'nodejs' or values.techStack == 'react' or values.techStack == 'angular' or values.techStack == 'vue' -%}
+        - name: npm-cache
+          path: /home/user/.npm
+        {% if values.persistentStorage -%}
+        - name: node-modules
+          path: /projects/node_modules
+        {% endif -%}
+        {% elif values.techStack == 'java-spring' -%}
+        - name: m2-cache
+          path: /home/user/.m2
+        {% elif values.techStack == 'python-django' -%}
+        - name: pip-cache
+          path: /home/user/.cache/pip
+        {% endif -%}
+
+{% if values.includeDatabase and values.databaseType == 'postgresql' %}
+  # PostgreSQL Database
+  - name: postgres
+    container:
+      image: postgres:15-alpine
+      memoryLimit: 512Mi
+      memoryRequest: 256Mi
+      env:
+        - name: POSTGRES_USER
+          value: devuser
+        - name: POSTGRES_PASSWORD
+          value: devpassword
+        - name: POSTGRES_DB
+          value: {{ values.databaseName }}
+      endpoints:
+        - name: postgres
+          targetPort: 5432
+          exposure: none
+      {% if values.persistentStorage -%}
+      volumeMounts:
+        - name: postgres-data
+          path: /var/lib/postgresql/data
+      {% endif -%}
+{% endif %}
+
+{% if values.includeDatabase and values.databaseType == 'mysql' %}
+  # MySQL Database
+  - name: mysql
+    container:
+      image: mysql:8-debian
+      memoryLimit: 512Mi
+      memoryRequest: 256Mi
+      env:
+        - name: MYSQL_USER
+          value: devuser
+        - name: MYSQL_PASSWORD
+          value: devpassword
+        - name: MYSQL_DATABASE
+          value: {{ values.databaseName }}
+        - name: MYSQL_ROOT_PASSWORD
+          value: rootpassword
+      endpoints:
+        - name: mysql
+          targetPort: 3306
+          exposure: none
+      {% if values.persistentStorage -%}
+      volumeMounts:
+        - name: mysql-data
+          path: /var/lib/mysql
+      {% endif -%}
+{% endif %}
+
+{% if values.includeDatabase and values.databaseType == 'mongodb' %}
+  # MongoDB Database
+  - name: mongodb
+    container:
+      image: mongo:7
+      memoryLimit: 512Mi
+      memoryRequest: 256Mi
+      env:
+        - name: MONGO_INITDB_ROOT_USERNAME
+          value: devuser
+        - name: MONGO_INITDB_ROOT_PASSWORD
+          value: devpassword
+        - name: MONGO_INITDB_DATABASE
+          value: {{ values.databaseName }}
+      endpoints:
+        - name: mongodb
+          targetPort: 27017
+          exposure: none
+      {% if values.persistentStorage -%}
+      volumeMounts:
+        - name: mongodb-data
+          path: /data/db
+      {% endif -%}
+{% endif %}
+
+{% if values.includeDatabase and values.databaseType == 'redis' %}
+  # Redis Cache
+  - name: redis
+    container:
+      image: redis:7-alpine
+      memoryLimit: 256Mi
+      memoryRequest: 128Mi
+      endpoints:
+        - name: redis
+          targetPort: 6379
+          exposure: none
+      {% if values.persistentStorage -%}
+      volumeMounts:
+        - name: redis-data
+          path: /data
+      {% endif -%}
+{% endif %}
+
+{% if values.additionalServices and 'redis' in values.additionalServices %}
+  # Redis Service
+  - name: redis
+    container:
+      image: redis:7-alpine
+      memoryLimit: 256Mi
+      endpoints:
+        - name: redis
+          targetPort: 6379
+          exposure: none
+{% endif %}
+
+{% if values.additionalServices and 'rabbitmq' in values.additionalServices %}
+  # RabbitMQ Service
+  - name: rabbitmq
+    container:
+      image: rabbitmq:3-management-alpine
+      memoryLimit: 512Mi
+      env:
+        - name: RABBITMQ_DEFAULT_USER
+          value: guest
+        - name: RABBITMQ_DEFAULT_PASS
+          value: guest
+      endpoints:
+        - name: amqp
+          targetPort: 5672
+          exposure: none
+        - name: management
+          targetPort: 15672
+          exposure: internal
+{% endif %}
+
+{% if values.additionalServices and 'kafka' in values.additionalServices %}
+  # Kafka Service
+  - name: kafka
+    container:
+      image: confluentinc/cp-kafka:latest
+      memoryLimit: 1Gi
+      env:
+        - name: KAFKA_ZOOKEEPER_CONNECT
+          value: zookeeper:2181
+      endpoints:
+        - name: kafka
+          targetPort: 9092
+          exposure: none
+{% endif %}
+
+{% if values.persistentStorage %}
+  # Persistent Volumes
+  {% if values.techStack == 'nodejs' or values.techStack == 'react' or values.techStack == 'angular' or values.techStack == 'vue' -%}
+  - name: npm-cache
+    volume:
+      size: {{ values.volumeSize }}
+
+  - name: node-modules
+    volume:
+      size: {{ values.volumeSize }}
+  {% elif values.techStack == 'java-spring' -%}
+  - name: m2-cache
+    volume:
+      size: {{ values.volumeSize }}
+  {% elif values.techStack == 'python-django' -%}
+  - name: pip-cache
+    volume:
+      size: {{ values.volumeSize }}
+  {% endif -%}
+
+  {% if values.includeDatabase and values.databaseType == 'postgresql' -%}
+  - name: postgres-data
+    volume:
+      size: {{ values.volumeSize }}
+  {% endif -%}
+
+  {% if values.includeDatabase and values.databaseType == 'mysql' -%}
+  - name: mysql-data
+    volume:
+      size: {{ values.volumeSize }}
+  {% endif -%}
+
+  {% if values.includeDatabase and values.databaseType == 'mongodb' -%}
+  - name: mongodb-data
+    volume:
+      size: {{ values.volumeSize }}
+  {% endif -%}
+
+  {% if values.includeDatabase and values.databaseType == 'redis' -%}
+  - name: redis-data
+    volume:
+      size: 1Gi
+  {% endif -%}
+{% endif %}
+
+{% if values.repository %}
+  # Git repository
+  - name: project-clone
+    git:
+      remotes:
+        origin: {{ values.repository }}
+      checkoutFrom:
+        revision: main
+{% endif %}
+
+commands:
+  {% if values.techStack == 'nodejs' or values.techStack == 'react' or values.techStack == 'angular' or values.techStack == 'vue' -%}
+  # Install dependencies
+  - id: install
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: npm install
+      group:
+        kind: build
+        isDefault: true
+
+  # Build the application
+  - id: build
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: npm run build
+      group:
+        kind: build
+
+  # Run development server
+  - id: run
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: npm run dev
+      group:
+        kind: run
+        isDefault: true
+
+  # Run tests
+  - id: test
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: npm test
+      group:
+        kind: test
+        isDefault: true
+
+  # Lint code
+  - id: lint
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: npm run lint
+      group:
+        kind: test
+
+  {% elif values.techStack == 'java-spring' -%}
+  # Build with Maven
+  - id: build
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: mvn clean package -DskipTests
+      group:
+        kind: build
+        isDefault: true
+
+  # Run Spring Boot application
+  - id: run
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: mvn spring-boot:run
+      group:
+        kind: run
+        isDefault: true
+
+  # Run tests
+  - id: test
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: mvn test
+      group:
+        kind: test
+        isDefault: true
+
+  {% elif values.techStack == 'python-django' -%}
+  # Install dependencies
+  - id: install
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: pip install -r requirements.txt
+      group:
+        kind: build
+        isDefault: true
+
+  # Run migrations
+  - id: migrate
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: python manage.py migrate
+      group:
+        kind: build
+
+  # Run Django server
+  - id: run
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: python manage.py runserver 0.0.0.0:{{ values.mainPort }}
+      group:
+        kind: run
+        isDefault: true
+
+  # Run tests
+  - id: test
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: python manage.py test
+      group:
+        kind: test
+        isDefault: true
+
+  {% elif values.techStack == 'go' -%}
+  # Build Go application
+  - id: build
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: go build -o app .
+      group:
+        kind: build
+        isDefault: true
+
+  # Run Go application
+  - id: run
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: go run .
+      group:
+        kind: run
+        isDefault: true
+
+  # Run tests
+  - id: test
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: go test ./...
+      group:
+        kind: test
+        isDefault: true
+
+  {% elif values.techStack == 'dotnet' -%}
+  # Build .NET application
+  - id: build
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: dotnet build
+      group:
+        kind: build
+        isDefault: true
+
+  # Run .NET application
+  - id: run
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: dotnet run
+      group:
+        kind: run
+        isDefault: true
+
+  # Run tests
+  - id: test
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: dotnet test
+      group:
+        kind: test
+        isDefault: true
+  {% endif %}
+
+{% if values.autoStart %}
+events:
+  postStart:
+    - install
+    {% if values.includeDatabase and values.techStack == 'python-django' -%}
+    - migrate
+    {% endif -%}
+{% endif %}

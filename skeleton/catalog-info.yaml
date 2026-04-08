@@ -1,0 +1,29 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: {{ values.name }}
+  title: {{ values.displayName }}
+  description: {{ values.description }}
+  annotations:
+    github.com/project-slug: {{ values.owner }}/{{ values.name }}
+    backstage.io/techdocs-ref: dir:.
+    devspaces/workspace-url: {{ values.devspacesUrl }}#https://github.com/{{ values.owner }}/{{ values.name }}
+  tags:
+    - {{ values.techStack }}
+    - {{ values.language }}
+    - devspaces
+    {% if values.includeDatabase -%}
+    - {{ values.databaseType }}
+    {% endif -%}
+  links:
+    - url: https://github.com/{{ values.owner }}/{{ values.name }}
+      title: Repository
+      icon: github
+    - url: {{ values.devspacesUrl }}#https://github.com/{{ values.owner }}/{{ values.name }}
+      title: Open in DevSpaces
+      icon: dashboard
+spec:
+  type: service
+  lifecycle: experimental
+  owner: {{ values.owner }}
+  system: {{ values.name }}-system

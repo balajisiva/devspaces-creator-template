@@ -1,0 +1,201 @@
+schemaVersion: 2.2.0
+metadata:
+  name: my-application
+  version: 1.0.0
+  displayName: My Application DevSpace
+  description: Template for creating OpenShift DevSpaces development environment
+  tags:
+    - nodejs
+    - react
+    - typescript
+  projectType: nodejs
+  language: typescript
+  provider: Red Hat
+  supportUrl: https://github.com/example/my-app
+
+components:
+  # Main development container
+  - name: dev-container
+    container:
+      image: registry.redhat.io/devspaces/udi-rhel8:latest
+      memoryLimit: 2Gi
+      memoryRequest: 1Gi
+      cpuLimit: 1000m
+      cpuRequest: 500m
+      mountSources: true
+      sourceMapping: /projects
+      env:
+        - name: NODE_ENV
+          value: development
+        - name: PORT
+          value: "3000"
+        - name: API_URL
+          value: http://localhost:8080
+      endpoints:
+        - name: frontend
+          targetPort: 3000
+          exposure: public
+          protocol: https
+        - name: backend
+          targetPort: 8080
+          exposure: internal
+          protocol: http
+      volumeMounts:
+        - name: npm-cache
+          path: /home/user/.npm
+        - name: node-modules
+          path: /projects/node_modules
+
+  # Database container (PostgreSQL)
+  - name: postgres
+    container:
+      image: postgres:14-alpine
+      memoryLimit: 512Mi
+      memoryRequest: 256Mi
+      env:
+        - name: POSTGRES_USER
+          value: devuser
+        - name: POSTGRES_PASSWORD
+          value: devpassword
+        - name: POSTGRES_DB
+          value: myapp_dev
+      endpoints:
+        - name: postgres
+          targetPort: 5432
+          exposure: none
+      volumeMounts:
+        - name: postgres-data
+          path: /var/lib/postgresql/data
+
+  # Persistent volumes
+  - name: npm-cache
+    volume:
+      size: 1Gi
+
+  - name: node-modules
+    volume:
+      size: 2Gi
+
+  - name: postgres-data
+    volume:
+      size: 1Gi
+
+  # Git clone configuration
+  - name: project-clone
+    git:
+      remotes:
+        origin: https://github.com/example/my-application.git
+      checkoutFrom:
+        revision: main
+
+commands:
+  # Install dependencies
+  - id: install-dependencies
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: npm install
+      group:
+        kind: build
+        isDefault: true
+
+  # Build the application
+  - id: build
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: npm run build
+      group:
+        kind: build
+
+  # Run the application in development mode
+  - id: run-dev
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: npm run dev
+      group:
+        kind: run
+        isDefault: true
+
+  # Run the application in production mode
+  - id: run-prod
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: npm start
+      group:
+        kind: run
+
+  # Run tests
+  - id: test
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: npm test
+      group:
+        kind: test
+        isDefault: true
+
+  # Run tests with coverage
+  - id: test-coverage
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: npm run test:coverage
+      group:
+        kind: test
+
+  # Lint the code
+  - id: lint
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: npm run lint
+      group:
+        kind: test
+
+  # Debug the application
+  - id: debug
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: npm run debug
+      group:
+        kind: debug
+        isDefault: true
+
+  # Database migration
+  - id: db-migrate
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: npm run db:migrate
+      group:
+        kind: run
+
+  # Seed database
+  - id: db-seed
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: npm run db:seed
+      group:
+        kind: run
+
+events:
+  # Execute after the workspace starts
+  postStart:
+    - install-dependencies
+
+  # Execute before stopping the workspace
+  preStop:
+    - cleanup
+
+  # Cleanup command
+commands:
+  - id: cleanup
+    exec:
+      component: dev-container
+      workingDir: ${PROJECT_SOURCE}
+      commandLine: echo "Cleaning up workspace..."
